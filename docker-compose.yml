@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16
+    container_name: mtl_db
+    restart: always
+    environment:
+      POSTGRES_DB: mtl
+      POSTGRES_USER: mtl
+      POSTGRES_PASSWORD: mtlpass
+    ports:
+      - "5432:5432"   # ถ้าชนกับ Postgres บนโฮสต์ เปลี่ยนเป็น "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mtl_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: gg@aru.ac.th     # ควรเปลี่ยนเป็นของคุณเอง
+      PGADMIN_DEFAULT_PASSWORD: 5555          # ควรใช้รหัสที่แข็งแรง
+    ports:
+      - "5050:80"
+    volumes:
+      - ./pgadmin:/var/lib/pgadmin            # ใช้โฟลเดอร์บนโฮสต์
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
