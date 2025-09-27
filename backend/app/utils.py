@@ -1,11 +1,16 @@
 import os
 import threading
 
-LOG_FILE = os.getenv("LOG_FILE", "/app/work/app.log")
-IMG_DIR = os.getenv("IMG_DIR", "/app/work/img")
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/app/work/output")
-RUNNING_NO_FILE = os.getenv("RUNNING_NO_FILE", "/app/work/running_number.txt")
-CALIB_DIR = os.getenv("CALIB_DIR", "/app/work/calibration_data")
+# หา path ของโปรเจค (โฟลเดอร์ที่ไฟล์นี้อยู่)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WORK_DIR = os.path.join(BASE_DIR, "work")
+
+# ใช้ environment variable ถ้ามี, ถ้าไม่มีให้ใช้ path ในโฟลเดอร์โปรเจค
+LOG_FILE = os.getenv("LOG_FILE", os.path.join(WORK_DIR, "app.log"))
+IMG_DIR = os.getenv("IMG_DIR", os.path.join(WORK_DIR, "img"))
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", os.path.join(WORK_DIR, "output"))
+RUNNING_NO_FILE = os.getenv("RUNNING_NO_FILE", os.path.join(WORK_DIR, "running_number.txt"))
+CALIB_DIR = os.getenv("CALIB_DIR", os.path.join(WORK_DIR, "calibration_data"))
 
 _running_no_lock = threading.Lock()
 

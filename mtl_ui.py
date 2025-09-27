@@ -10,6 +10,7 @@ import sys, os, logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from PyQt5 import QtCore, QtGui, QtWidgets
+from typing import Union, Optional
 
 import mtl_processing as proc  # โมดูลประมวลผล
 
@@ -29,7 +30,7 @@ TARGET_W, TARGET_H = 4032, 3040
 def resize_to_target(img, w=TARGET_W, h=TARGET_H): return proc.resize_to_target(img, w, h)
 
 USE_IMAGE = True
-IMAGE_SOURCE = os.path.join(script_dir, "img/imgcicle1.jpg")
+IMAGE_SOURCE = os.path.join(script_dir, "img/imgmtl2.jpg")
 
 blue_Lower = (90, 120, 120)
 blue_Upper = (150, 255, 255)
@@ -82,14 +83,14 @@ API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 def post_result_to_api(
     output_img_path: str,
-    run_no: int | str,
+    run_no: Union[int, str],
     width_mm: float,
     height_mm: float,
     area_mm2: float,
     s_map_or_list=None,
     source_filename: str = "",
     output_filename: str = "",
-    extras: dict | None = None,
+    extras: Optional[dict] = None,
     timeout_s: float = 15.0,
     logger=None,
 ):
@@ -143,7 +144,7 @@ def get_next_running_number(filename=running_number_path):
 def bgr_to_qimage(bgr) -> QtGui.QImage:
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     h, w, ch = rgb.shape
-    return QtGui.QImage(rgb.data, w, h, ch*w, QtGui.QImage.Format.Format_RGB888).copy()
+    return QtGui.QImage(rgb.data, w, h, ch*w, QtGui.QImage.Format_RGB888).copy()
 
 BASE_W, BASE_H = 1280, 720
 def clamp(v, lo, hi): return hi if v > hi else lo if v < lo else v
@@ -294,7 +295,7 @@ class CameraWorker(QtCore.QThread):
             frame = resize_to_target(frame); self.latest_frame = frame.copy()
             cv2.putText(frame, datetime.now().strftime("%H:%M:%S"), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2, cv2.LINE_AA)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); h, w, ch = rgb.shape
-            qimg = QtGui.QImage(rgb.data, w, h, ch*w, QtGui.QImage.Format.Format_RGB888).copy()
+            qimg = QtGui.QImage(rgb.data, w, h, ch*w, QtGui.QImage.Format_RGB888).copy()
             self.frame_qimage.emit(qimg)
         self.release()
     def stop(self): self.running = False

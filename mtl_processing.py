@@ -349,6 +349,7 @@ class Processor:
 
             # ---------------- วาดกรอบแดง LOST + เติม mask กรอบแดง ----------------
             lost_boxes_pts_orig = []
+            per_hole_details = []  # (idx, w_mm, h_mm, area_mm2, (cx_o, cy_o))
             cnts_lost, _ = cv2.findContours(clean_lost, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for c in cnts_lost:
                 if cv2.contourArea(c) < MIN_AREA_PX:
@@ -361,6 +362,28 @@ class Processor:
                 box_warp  = cv2.boxPoints(rect_lost).astype(np.float32).reshape(-1, 1, 2)
                 box_orig  = cv2.perspectiveTransform(box_warp, Minv).reshape(-1, 2)
                 box_i32   = np.round(box_orig).astype(np.int32)
+                # Compute W/H from the red minAreaRect box (projected back to original coords)
+                try:
+                    wmm_h, hmm_h = _proj_span_mm(
+                        box_orig.astype(np.float32), origin_tl, unit_u, unit_v,
+                        self.pixel_mm_ratio_w, self.pixel_mm_ratio_h
+                    )
+                except Exception:
+                    wmm_h, hmm_h = 0.0, 0.0
+                # Area from contour (in warp) -> mm^2
+                area_px_h = float(cv2.contourArea(c))
+                amm2_h = area_px_h * self.pixel_mm_ratio_w * self.pixel_mm_ratio_h
+                # Centroid (warp) -> original
+                Mc = cv2.moments(c)
+                if Mc["m00"] != 0:
+                    cx_w, cy_w = float(Mc["m10"]/Mc["m00"]), float(Mc["m01"]/Mc["m00"])
+                else:
+                    # fallback: center of box in warp space
+                    cx_w = float((x + x + w) / 2.0); cy_w = float((y + y + h) / 2.0)
+                pt = np.array([[[cx_w, cy_w]]], dtype=np.float32)
+                pt_orig = cv2.perspectiveTransform(pt, Minv)[0,0]
+                cx_o, cy_o = int(round(float(pt_orig[0]))), int(round(float(pt_orig[1])))
+                per_hole_details.append((len(per_hole_details)+1, wmm_h, hmm_h, amm2_h, (cx_o, cy_o)))
 
                 cv2.polylines(output, [box_i32], True, (0, 0, 255), 3, lineType=cv2.LINE_8)
                 cv2.fillConvexPoly(lost_boxes_mask_orig, box_i32, 255, lineType=cv2.LINE_8)
@@ -456,6 +479,7 @@ class Processor:
             lost_area_px_warp = float(cv2.countNonZero(clean_lost))
             lost_area_mm2 = lost_area_px_warp * self.pixel_mm_ratio_w * self.pixel_mm_ratio_h
 
+
             # ---------- ระบายช่องว่างภายในกรอบใหญ่ (ทึบ) ----------
             rect_mask = np.zeros_like(obj_mask)
             cv2.fillConvexPoly(rect_mask, rect_pts, 255, lineType=cv2.LINE_8)
@@ -485,8 +509,13 @@ class Processor:
                 hX, hY = int(Mh["m10"]/Mh["m00"]), int(Mh["m01"]/Mh["m00"])
             else:
                 hX, hY = 20, 20
-            _draw_label(output, f"Lost area: {lost_area_mm2:.1f} mm2", (hX, hY+80), (255, 255, 255))
-            _draw_label(output, f"Lost W: {lost_w_mm:.1f} mm  Lost H: {lost_h_mm:.1f} mm", (hX, hY+120), (255, 255, 255))
+
+            # List per-hole lost area below
+            y_offset = 150
+            if per_hole_details:
+                for idx_h, (hid, wmm_h, hmm_h, amm2_h, (cx_o, cy_o)) in enumerate(per_hole_details, start=1):
+                    _draw_label(output, f"R{idx_h}: W={wmm_h:.1f} H={hmm_h:.1f} A={amm2_h:.0f}", (cx_o+5, cy_o-5), (255,255,255))
+
             # _put(output, f"Width:  {big_w_mm:.1f} mm",  (cX - 140, cY - 20), 2.0)
             # _put(output, f"Height: {big_h_mm:.1f} mm", (cX - 140, cY + 14), 2.0)
             
@@ -496,7 +525,7 @@ class Processor:
             if rects_mm_for_result:  # มี S จึงค่อยแสดง
                 # สร้างข้อความ S1..Sn แบบสั้น: S1(W=..,H=..,A=..)
                 s_parts = [
-                    f"S{i}(W={wmm:.1f},H={hmm:.1f},A={amm2:.0f})"
+                    f"S{i}(W={wmm:.1f} mm,H={hmm:.1f} mm,A={amm2:.0f} mm2)"
                     for i, (wmm, hmm, amm2) in enumerate(rects_mm_for_result, start=1)
                 ]
                 # แบ่งเป็นหลายบรรทัดเพื่อไม่ให้ยาวเกินไป (เช่น บรรทัดละ 2–3 ชิ้น)
