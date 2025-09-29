@@ -5,8 +5,12 @@ mtl_ui.py
 - เรียกใช้ mtl_processing.Processor
 """
 
+import os
+os.environ["QT_XCB_GL_INTEGRATION"] = "none"
+os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+
 import cv2
-import sys, os, logging
+import sys, logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -80,16 +84,18 @@ def format_S_for_log(s_list):
 import requests, json
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
+from typing import Union, Optional
+
 def post_result_to_api(
     output_img_path: str,
-    run_no: int | str,
+    run_no: Union[int, str],
     width_mm: float,
     height_mm: float,
     area_mm2: float,
     s_map_or_list=None,
     source_filename: str = "",
     output_filename: str = "",
-    extras: dict | None = None,
+    extras: Optional[dict] = None,
     timeout_s: float = 15.0,
     logger=None,
 ):

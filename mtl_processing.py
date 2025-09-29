@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import cv2
 import numpy as np
 import logging
@@ -186,7 +187,7 @@ def _draw_measure_lines(img, rect_pts, width_lr_mm, height_tb_mm):
         a1 = (int(round(p[0] + n[0]*L)), int(round(p[1] + n[1]*L)))
         a2 = (int(round(p[0] - n[0]*L)), int(round(p[1] - n[1]*L)))
         b1 = (int(round(q[0] + n[0]*L)), int(round(q[1] + n[1]*L)))
-        b2 = (int(round(q[0] - n[0]*L)), int(round(q[1] - n[1]*L)))
+        b2 = (int(round(q[0] - n[0]*L)), int(round(q[1] + n[1]*L)))
         cv2.line(img, a1, a2, color, thick, lineType=cv2.LINE_AA)
         cv2.line(img, b1, b2, color, thick, lineType=cv2.LINE_AA)
 
@@ -347,22 +348,29 @@ class Processor:
             lost_orig = cv2.warpPerspective(clean_lost, Minv, (w0, h0), flags=cv2.INTER_NEAREST)
             lost_boxes_mask_orig = np.zeros((h0, w0), dtype=np.uint8)
 
-            # ---------------- วาดกรอบแดง LOST + เติม mask กรอบแดง ----------------
+            # ---------------- วาดกรอบแดง LOST (axis-aligned) + เติม mask กรอบแดง ----------------
             lost_boxes_pts_orig = []
             per_hole_details = []  # (idx, w_mm, h_mm, area_mm2, (cx_o, cy_o))
             cnts_lost, _ = cv2.findContours(clean_lost, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for c in cnts_lost:
                 if cv2.contourArea(c) < MIN_AREA_PX:
                     continue
-                x,y,w,h = cv2.boundingRect(c)
+
+                # >>> เปลี่ยนมาใช้กรอบสี่เหลี่ยม "ตรง" (axis-aligned) ในพิกัด warp <<<
+                x, y, w, h = cv2.boundingRect(c)
                 if w < MIN_W or h < MIN_H:
                     continue
 
-                rect_lost = cv2.minAreaRect(c)
-                box_warp  = cv2.boxPoints(rect_lost).astype(np.float32).reshape(-1, 1, 2)
-                box_orig  = cv2.perspectiveTransform(box_warp, Minv).reshape(-1, 2)
-                box_i32   = np.round(box_orig).astype(np.int32)
-                # Compute W/H from the red minAreaRect box (projected back to original coords)
+                box_warp = np.array(
+                    [[x, y], [x+w, y], [x+w, y+h], [x, y+h]],
+                    dtype=np.float32
+                ).reshape(-1, 1, 2)
+
+                # project กลับพิกัดเดิม
+                box_orig = cv2.perspectiveTransform(box_warp, Minv).reshape(-1, 2)
+                box_i32  = np.round(box_orig).astype(np.int32)
+
+                # คำนวณ W/H mm จากกรอบนี้ (พิกัดเดิม)
                 try:
                     wmm_h, hmm_h = _proj_span_mm(
                         box_orig.astype(np.float32), origin_tl, unit_u, unit_v,
@@ -370,19 +378,21 @@ class Processor:
                     )
                 except Exception:
                     wmm_h, hmm_h = 0.0, 0.0
-                # Area from contour (in warp) -> mm^2
+
+                # พื้นที่ mm^2 (จากพื้นที่รูจริงใน warp)
                 area_px_h = float(cv2.contourArea(c))
                 amm2_h = area_px_h * self.pixel_mm_ratio_w * self.pixel_mm_ratio_h
-                # Centroid (warp) -> original
+
+                # centroid ของรูใน warp -> กลับพิกัดเดิม
                 Mc = cv2.moments(c)
                 if Mc["m00"] != 0:
                     cx_w, cy_w = float(Mc["m10"]/Mc["m00"]), float(Mc["m01"]/Mc["m00"])
                 else:
-                    # fallback: center of box in warp space
                     cx_w = float((x + x + w) / 2.0); cy_w = float((y + y + h) / 2.0)
                 pt = np.array([[[cx_w, cy_w]]], dtype=np.float32)
                 pt_orig = cv2.perspectiveTransform(pt, Minv)[0,0]
                 cx_o, cy_o = int(round(float(pt_orig[0]))), int(round(float(pt_orig[1])))
+
                 per_hole_details.append((len(per_hole_details)+1, wmm_h, hmm_h, amm2_h, (cx_o, cy_o)))
 
                 cv2.polylines(output, [box_i32], True, (0, 0, 255), 3, lineType=cv2.LINE_8)
@@ -449,7 +459,6 @@ class Processor:
 
             # ----- คำนวณขนาด RN ตามแกนวัด -----
             rects_mm_for_result = []
-            log_sn = []
             for idx, poly_float in enumerate(polys_back, start=1):
                 w_mm_piece, h_mm_piece = _proj_span_mm(
                     np.asarray(poly_float), origin_tl, unit_u, unit_v,
@@ -464,7 +473,7 @@ class Processor:
 
             # ---------- วัด Lost W/H (จากรูจริงๆ เท่านั้น) ----------
             if cv2.countNonZero(clean_lost) > 0:
-                xL, yL, wL, hL = cv2.boundingRect(clean_lost)
+                xL, yL, wL, hL = cv2.boundingRect(clean_lost)  # axis-aligned ใน warp
                 lost_corners_warp = np.array(
                     [[xL,yL],[xL+wL,yL],[xL+wL,yL+hL],[xL,yL+hL]], dtype=np.float32
                 ).reshape(-1,1,2)
@@ -478,7 +487,6 @@ class Processor:
 
             lost_area_px_warp = float(cv2.countNonZero(clean_lost))
             lost_area_mm2 = lost_area_px_warp * self.pixel_mm_ratio_w * self.pixel_mm_ratio_h
-
 
             # ---------- ระบายช่องว่างภายในกรอบใหญ่ (ทึบ) ----------
             rect_mask = np.zeros_like(obj_mask)
@@ -511,35 +519,27 @@ class Processor:
                 hX, hY = 20, 20
 
             # List per-hole lost area below
-            y_offset = 150
             if per_hole_details:
                 for idx_h, (hid, wmm_h, hmm_h, amm2_h, (cx_o, cy_o)) in enumerate(per_hole_details, start=1):
                     _draw_label(output, f"R{idx_h}: W={wmm_h:.1f} H={hmm_h:.1f} A={amm2_h:.0f}", (cx_o+5, cy_o-5), (255,255,255))
 
-            # _put(output, f"Width:  {big_w_mm:.1f} mm",  (cX - 140, cY - 20), 2.0)
-            # _put(output, f"Height: {big_h_mm:.1f} mm", (cX - 140, cY + 14), 2.0)
-            
             # ---------- มุมขวาล่าง: แสดง Type + S1..Sn ----------
             lines = [f"Type: {type}"]
 
             if rects_mm_for_result:  # มี S จึงค่อยแสดง
-                # สร้างข้อความ S1..Sn แบบสั้น: S1(W=..,H=..,A=..)
                 s_parts = [
                     f"S{i}(W={wmm:.1f} mm,H={hmm:.1f} mm,A={amm2:.0f} mm2)"
                     for i, (wmm, hmm, amm2) in enumerate(rects_mm_for_result, start=1)
                 ]
-                # แบ่งเป็นหลายบรรทัดเพื่อไม่ให้ยาวเกินไป (เช่น บรรทัดละ 2–3 ชิ้น)
                 max_per_line = 2
                 s_lines = ["  |  ".join(s_parts[i:i+max_per_line]) for i in range(0, len(s_parts), max_per_line)]
                 lines.extend(s_lines)
 
-            # คำนวณขนาดรวม เพื่อจัดชิดขวาล่างให้ทั้งบล็อก
             scale = 2.5
             thick = 4
             h_img, w_img = output.shape[:2]
             margin = 200
 
-            # หา width สูงสุดของทุกบรรทัด
             widths = []
             heights = []
             for txt in lines:
@@ -547,11 +547,10 @@ class Processor:
                 widths.append(tw); heights.append(th)
 
             block_w = max(widths) if widths else 0
-            line_h = (max(heights) if heights else 0) + 30  # เผื่อระยะห่างระหว่างบรรทัด
+            line_h = (max(heights) if heights else 0) + 30
             start_x = w_img - block_w - margin
             start_y = h_img - margin
 
-            # วาดจากล่างขึ้นบน เพื่อให้ "Type" อยู่บรรทัดล่างสุดตามตำแหน่งที่คุ้นเคย
             y = start_y
             for txt in reversed(lines):
                 _draw_label(output, txt, (start_x, y), (255, 255, 255), scale=scale, thickness=thick)
