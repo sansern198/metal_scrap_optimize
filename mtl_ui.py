@@ -33,7 +33,7 @@ TARGET_W, TARGET_H = 4032, 3040
 def resize_to_target(img, w=TARGET_W, h=TARGET_H): return proc.resize_to_target(img, w, h)
 
 USE_IMAGE = True
-IMAGE_SOURCE = os.path.join(script_dir, "img/imgcicle1.jpg")
+IMAGE_SOURCE = os.path.join(script_dir, "img/imgmtl2.jpg")
 
 blue_Lower = (90, 120, 120)
 blue_Upper = (150, 255, 255)
@@ -85,6 +85,21 @@ import requests, json
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 from typing import Union, Optional
+
+# --- Tower light (Jetson GPIO) ---
+try:
+    import mtl_gpio as gpio   # ไฟล์ที่เราเตรียมไว้ก่อนหน้า
+    _HAS_GPIO = True
+except Exception:
+    _HAS_GPIO = False
+    class _NoGPIO:
+        def ensure_init(self): pass
+        def cleanup(self): pass
+        def measure_start(self): pass
+        def measure_success(self): pass
+        def measure_fail(self): pass
+        def api_fail(self): pass
+    gpio = _NoGPIO()
 
 def post_result_to_api(
     output_img_path: str,
@@ -327,6 +342,11 @@ class MainWindow(QtWidgets.QMainWindow):
             pixel_mm_ratio_w=PIXEL_MM_RATIO_W, pixel_mm_ratio_h=PIXEL_MM_RATIO_H,
             logger=logger
         )
+        if _HAS_GPIO:
+            try:
+                gpio.ensure_init()   # <<< เข้าสู่สถานะ idle: เขียว ON
+            except Exception:
+                pass
 
         central = QtWidgets.QWidget(); self.setCentralWidget(central)
         root = QtWidgets.QVBoxLayout(central); root.setContentsMargins(self.outer_m,self.outer_m,self.outer_m,self.outer_m); root.setSpacing(self.spacing)
@@ -449,6 +469,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._lock_measure_ui()
         try:
+            gpio.measure_start()  # <<< เขียว OFF
+        except Exception:
+            pass
+        try:
             # --- 1) เตรียมภาพ input ---
             if USE_IMAGE:
                 if self.image_bgr is None:
@@ -539,11 +563,19 @@ class MainWindow(QtWidgets.QMainWindow):
                         extras={"type_name": type_name},
                         logger=logger
                     )
+                    try:
+                        gpio.measure_success()   # <<< เหลือง pulse
+                    except Exception:
+                        pass
                     # จะเอาค่า id/run_no/outfile จาก api_json ไปโชว์เพิ่มก็ได้
                     # logger.info(f"[API] DB row id={api_json.get('id')} saved")
                 except Exception as api_err:
                     logger.exception(f"Send to API failed: {api_err}")
                     # ไม่ให้ UI ค้าง/ล้ม แม้ API มีปัญหา
+                    try:
+                        gpio.api_fail_latched()   # <<< เหลือง pulse
+                    except Exception:
+                        pass
 
             else:
                 t = datetime.now().strftime("%H:%M:%S")
@@ -551,9 +583,17 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._set_proc_preview(None)
                 self.right.set_class("—", "#444444")
                 logger.warning("MEASURE NO_OBJECT")
+                try:
+                    gpio.measure_fail()   # <<< แดงติด
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.exception("Measurement error")
+            try:
+                gpio.measure_fail()   # <<< แดงติด
+            except Exception:
+                pass
             QtWidgets.QMessageBox.critical(self, "Error", f"Measurement failed:\n{e}")
         finally:
             self._unlock_measure_ui()
@@ -589,6 +629,10 @@ class MainWindow(QtWidgets.QMainWindow):
 def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("MTL Industrial Measurement System")
+    try:
+        app.aboutToQuit.connect(gpio.cleanup)   # <<< คืนพิน
+    except Exception:
+        pass
     win = MainWindow(); win.show()
     sys.exit(app.exec_())
 

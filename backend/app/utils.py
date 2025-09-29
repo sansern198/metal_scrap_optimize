@@ -34,3 +34,44 @@ def get_next_running_number() -> int:
         with open(RUNNING_NO_FILE, "w", encoding="utf-8") as f:
             f.write(str(nxt))
         return current
+    
+# try:
+#     import mtl_gpio as _gpio
+#     _HAS_GPIO = True
+# except Exception:
+#     _HAS_GPIO = False
+#     _gpio = None
+
+# def signal_api_fail(duration_sec: float = 2.0):
+#     """
+#     เรียกฟังก์ชันนี้เมื่อ 'ส่ง API ไม่ผ่าน' เพื่อให้ไฟเหลืองติดชั่วครู่
+#     ใช้ pulse (ไม่ค้าง) และไม่พังบนเครื่องที่ไม่มี Jetson.GPIO
+#     """
+#     if _HAS_GPIO and hasattr(_gpio, "api_fail"):
+#         try:
+#             _gpio.api_fail()  # ภายในจะ pulse ไฟเหลือง ~2s
+#         except Exception:
+#             pass  # กันพังทุกกรณี
+#     # ถ้าไม่มี GPIO ก็เงียบ ๆ ไป (หรือจะ print/log ก็ได้)
+#     # ตัวอย่าง: print("[WARN] API failed (yellow light pulse).")
+
+# def handle_api_response(ok: bool, duration_sec: float = 2.0):
+#     """
+#     Helper สำหรับโค้ดที่เรียก API:
+#         ok=True  -> ไม่ทำอะไร
+#         ok=False -> pulse ไฟเหลือง
+#     """
+#     if not ok:
+#         signal_api_fail(duration_sec)
+
+# # (ทางเลือก) ใช้เป็น context manager หากอยากให้ 'ข้อผิดพลาดระดับ Exception'
+# # ระหว่างส่ง API ก็ pulse ไฟเหลืองให้ด้วยอัตโนมัติ
+# from contextlib import contextmanager
+
+# @contextmanager
+# def api_fail_yellow_guard(duration_sec: float = 2.0):
+#     try:
+#         yield
+#     except Exception:
+#         signal_api_fail(duration_sec)
+#         raise
